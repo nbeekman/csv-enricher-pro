@@ -42,7 +42,7 @@ const Index = () => {
         throw new Error('API key must be in format "accessProfile:password"');
       }
 
-      const response = await fetch('https://devapi.enformion.com/PersonSearch', {
+      const response = await fetch('https://devapi.enformion.com/Contact/Enrich', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
