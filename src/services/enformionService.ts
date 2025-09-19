@@ -141,7 +141,7 @@ export class EnformionService {
     console.log('- Applied validation rule: Last Name required if First Name is used');
 
     try {
-      const response = await fetch('/api/Contact/Enrich', {
+      const response = await fetch(`${this.baseUrl}/Contact/Enrich`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
