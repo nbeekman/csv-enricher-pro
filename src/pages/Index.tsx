@@ -32,20 +32,59 @@ const Index = () => {
     setProgress(0);
   };
 
-  const mockEnrichContact = async (contact: DataRecord): Promise<DataRecord> => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-    
-    // Mock enriched data - in real implementation, this would call Endato/Enformion API
-    const enriched: DataRecord = {
-      ...contact,
-      email: `${contact.firstName.toLowerCase()}.${contact.lastName.toLowerCase()}@example.com`,
-      phone: `(555) ${Math.floor(Math.random() * 900) + 100}-${Math.floor(Math.random() * 9000) + 1000}`,
-      address: `${Math.floor(Math.random() * 9999) + 1} Main St, ${contact.city}, ${contact.state}`,
-      enriched: true,
-    };
-    
-    return enriched;
+  const enrichContact = async (contact: DataRecord, apiKey: string): Promise<DataRecord> => {
+    try {
+      // Extract API credentials from the API key
+      // Expecting format: "accessProfile:password" or just the access profile name
+      const [accessProfile, password] = apiKey.includes(':') ? apiKey.split(':') : [apiKey, ''];
+      
+      if (!password) {
+        throw new Error('API key must be in format "accessProfile:password"');
+      }
+
+      const response = await fetch('https://devapi.enformion.com/PersonSearch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'galaxy-ap-name': accessProfile,
+          'galaxy-ap-password': password,
+          'galaxy-search-type': 'DevAPIContactEnrich',
+          'galaxy-client-type': 'javascript'
+        },
+        body: JSON.stringify({
+          FirstName: contact.firstName,
+          MiddleName: contact.middleName,
+          LastName: contact.lastName,
+          Address: {
+            addressLine1: '',
+            addressLine2: `${contact.city}, ${contact.state}`
+          },
+          Phone: '',
+          Email: ''
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      // Extract enriched data from API response
+      const enriched: DataRecord = {
+        ...contact,
+        email: result.Emails?.[0] || '',
+        phone: result.Phones?.[0] || '',
+        address: result.Addresses?.[0] || '',
+        enriched: true,
+      };
+      
+      return enriched;
+    } catch (error) {
+      console.error('Error enriching contact:', error);
+      return { ...contact, enriched: false };
+    }
   };
 
   const handleEnrichmentStart = async (apiKey: string) => {
@@ -65,8 +104,7 @@ const Index = () => {
         if (!isEnriching) break; // Check if user stopped the process
         
         try {
-          // In real implementation, replace mockEnrichContact with actual API call
-          const enrichedContact = await mockEnrichContact(originalData[i]);
+          const enrichedContact = await enrichContact(originalData[i], apiKey);
           enriched.push(enrichedContact);
           setEnrichedData([...enriched]);
           

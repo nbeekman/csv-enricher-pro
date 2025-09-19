@@ -122,13 +122,16 @@ export const EnrichmentControls = ({
         {/* API Key Input */}
         <div className="space-y-2">
           <Label htmlFor="api-key">Endato/Enformion API Key</Label>
+          <p className="text-sm text-muted-foreground">
+            Format: accessProfile:password (e.g., "myProfile:myPassword")
+          </p>
           <div className="flex gap-2">
             <Input
               id="api-key"
               type={showApiKey ? "text" : "password"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Enter your API key..."
+              placeholder="accessProfile:password"
               disabled={isEnriching}
               className="flex-1"
             />
