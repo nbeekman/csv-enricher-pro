@@ -33,14 +33,35 @@ const Index = () => {
   };
 
   const enrichContact = async (contact: DataRecord, apiKey: string): Promise<DataRecord> => {
+    console.log('Starting enrichment for contact:', contact.firstName, contact.lastName);
+    
     try {
       // Extract API credentials from the API key
       // Expecting format: "accessProfile:password" or just the access profile name
       const [accessProfile, password] = apiKey.includes(':') ? apiKey.split(':') : [apiKey, ''];
       
       if (!password) {
+        console.error('API key format error: missing password');
         throw new Error('API key must be in format "accessProfile:password"');
       }
+
+      console.log('Making API call to Contact/Enrich endpoint...');
+      
+      const requestBody = {
+        FirstName: contact.firstName,
+        MiddleName: contact.middleName,
+        LastName: contact.lastName,
+        Dob: "",
+        Age: 0,
+        Address: {
+          addressLine1: "",
+          addressLine2: `${contact.city}, ${contact.state}`
+        },
+        Phone: "",
+        Email: ""
+      };
+      
+      console.log('Request body:', requestBody);
 
       const response = await fetch('https://devapi.enformion.com/Contact/Enrich', {
         method: 'POST',
@@ -52,24 +73,19 @@ const Index = () => {
           'galaxy-search-type': 'DevAPIContactEnrich',
           'galaxy-client-type': 'javascript'
         },
-        body: JSON.stringify({
-          FirstName: contact.firstName,
-          MiddleName: contact.middleName,
-          LastName: contact.lastName,
-          Address: {
-            addressLine1: '',
-            addressLine2: `${contact.city}, ${contact.state}`
-          },
-          Phone: '',
-          Email: ''
-        })
+        body: JSON.stringify(requestBody)
       });
 
+      console.log('API response status:', response.status);
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
         throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json();
+      console.log('API response data:', result);
       
       // Extract enriched data from API response
       const enriched: DataRecord = {
@@ -80,6 +96,7 @@ const Index = () => {
         enriched: true,
       };
       
+      console.log('Enriched contact:', enriched);
       return enriched;
     } catch (error) {
       console.error('Error enriching contact:', error);
@@ -88,6 +105,7 @@ const Index = () => {
   };
 
   const handleEnrichmentStart = async (apiKey: string) => {
+    console.log('Starting enrichment process with', originalData.length, 'contacts');
     setIsEnriching(true);
     setProgress(0);
     setEnrichedData([]);
@@ -101,7 +119,7 @@ const Index = () => {
       const enriched: DataRecord[] = [];
       
       for (let i = 0; i < originalData.length; i++) {
-        if (!isEnriching) break; // Check if user stopped the process
+        console.log(`Processing contact ${i + 1} of ${originalData.length}`);
         
         try {
           const enrichedContact = await enrichContact(originalData[i], apiKey);
