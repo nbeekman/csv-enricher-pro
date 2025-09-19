@@ -3,7 +3,8 @@ import { CSVUploader } from '@/components/CSVUploader';
 import { DataTable } from '@/components/DataTable';
 import { EnrichmentControls } from '@/components/EnrichmentControls';
 import { useToast } from '@/hooks/use-toast';
-import { EnformionService } from '@/services/enformionService';
+import { EnformionService, SearchType, SearchResult } from '@/services/enformionService';
+import { extractContactData } from '@/utils/dataExtractor';
 
 interface DataRecord {
   firstName: string;
@@ -18,6 +19,16 @@ interface DataRecord {
   phone?: string;
   address?: string;
   enriched?: boolean;
+  searchType?: SearchType;
+  cost?: number;
+  identityScore?: number;
+  usedCombination?: boolean;
+  allApiResponses?: Array<{
+    response: any;
+    searchType: 'contact' | 'person';
+    timestamp: string;
+    cost: number;
+  }>; // Store all API responses made during the search
 }
 
 const Index = () => {
@@ -33,8 +44,8 @@ const Index = () => {
     setProgress(0);
   };
 
-  const enrichContact = async (contact: DataRecord, apiKey: string): Promise<DataRecord> => {
-    console.log('Starting enrichment for contact:', contact.firstName, contact.lastName);
+  const enrichContact = async (contact: DataRecord, apiKey: string, searchType: SearchType): Promise<DataRecord> => {
+    console.log(`Starting ${searchType} enrichment for contact:`, contact.firstName, contact.lastName);
     
     try {
       // Extract API credentials from the API key
@@ -56,33 +67,43 @@ const Index = () => {
         password
       });
 
-      console.log('Using EnformionService with working authentication method');
+      console.log(`Using EnformionService with ${searchType} search method`);
       
-      // Use the working authentication method
-      const result = await enformionService.enrichContact({
+      // Use the new search method that handles all search types
+      const searchResult: SearchResult = await enformionService.searchContact({
         firstName: contact.firstName,
         middleName: contact.middleName,
         lastName: contact.lastName,
         city: contact.city,
         state: contact.state
-      });
+      }, searchType);
       
-      // Extract enriched data from API response
+      // Extract enriched data from API response using unified extraction
+      const extractedData = extractContactData(searchResult.data, searchResult.searchType);
+      
       const enriched: DataRecord = {
         ...contact,
-        email: result.person?.emails?.[0]?.address || '',
-        phone: result.person?.phones?.[0]?.number || '',
-        address: result.person?.addresses?.[0] ? 
-          `${result.person.addresses[0].street}${result.person.addresses[0].unit ? ' ' + result.person.addresses[0].unit : ''}, ${result.person.addresses[0].city}, ${result.person.addresses[0].state} ${result.person.addresses[0].zip}` : '',
+        email: extractedData.email,
+        phone: extractedData.phone,
+        address: extractedData.address,
         enriched: true,
+        searchType: searchResult.searchType,
+        cost: searchResult.cost,
+        identityScore: searchResult.data.identityScore,
+        usedCombination: searchResult.usedCombination,
+        allApiResponses: searchResult.allApiResponses, // Store all API responses made during the search
       };
       
       console.log('API Response Summary:');
-      console.log('- Identity Score:', result.identityScore);
-      console.log('- Total Execution Time:', result.totalRequestExecutionTimeMs + 'ms');
-      console.log('- Found Addresses:', result.person?.addresses?.length || 0);
-      console.log('- Found Phones:', result.person?.phones?.length || 0);
-      console.log('- Found Emails:', result.person?.emails?.length || 0);
+      console.log('- Search Type:', searchResult.searchType);
+      console.log('- Cost:', searchResult.cost);
+      console.log('- Identity Score:', searchResult.data.identityScore);
+      console.log('- Used Combination:', searchResult.usedCombination);
+      console.log('- Total Execution Time:', searchResult.data.totalRequestExecutionTimeMs + 'ms');
+      console.log('- Found Addresses:', searchResult.data.person?.addresses?.length || 0);
+      console.log('- Found Phones:', searchResult.data.person?.phones?.length || searchResult.data.person?.phoneNumbers?.length || 0);
+      console.log('- Found Emails:', searchResult.data.person?.emails?.length || 0);
+      console.log('- Extracted Data:', extractedData);
       console.log('Enriched contact:', enriched);
       return enriched;
     } catch (error) {
@@ -91,27 +112,37 @@ const Index = () => {
     }
   };
 
-  const handleEnrichmentStart = async (apiKey: string) => {
-    console.log('Starting enrichment process with', originalData.length, 'contacts');
+  const handleEnrichmentStart = async (apiKey: string, searchType: SearchType) => {
+    console.log(`Starting ${searchType} enrichment process with`, originalData.length, 'contacts');
     setIsEnriching(true);
     setProgress(0);
     setEnrichedData([]);
 
     toast({
       title: "Enrichment started",
-      description: `Processing ${originalData.length} contacts...`,
+      description: `Processing ${originalData.length} contacts using ${searchType} search...`,
     });
 
     try {
       const enriched: DataRecord[] = [];
+      let totalCost = 0;
+      let combinationUsed = 0;
       
       for (let i = 0; i < originalData.length; i++) {
         console.log(`Processing contact ${i + 1} of ${originalData.length}`);
         
         try {
-          const enrichedContact = await enrichContact(originalData[i], apiKey);
+          const enrichedContact = await enrichContact(originalData[i], apiKey, searchType);
           enriched.push(enrichedContact);
           setEnrichedData([...enriched]);
+          
+          // Track costs and combination usage
+          if (enrichedContact.cost) {
+            totalCost += enrichedContact.cost;
+          }
+          if (enrichedContact.usedCombination) {
+            combinationUsed++;
+          }
           
           const newProgress = ((i + 1) / originalData.length) * 100;
           setProgress(newProgress);
@@ -140,9 +171,13 @@ const Index = () => {
         }
       }
 
+      const successfulEnrichments = enriched.filter(c => c.enriched).length;
+      const costMessage = totalCost > 0 ? ` Total cost: $${totalCost.toFixed(2)}.` : '';
+      const combinationMessage = combinationUsed > 0 ? ` ${combinationUsed} contacts used combination search.` : '';
+
       toast({
         title: "Enrichment completed",
-        description: `Successfully enriched ${enriched.filter(c => c.enriched).length} of ${originalData.length} contacts`,
+        description: `Successfully enriched ${successfulEnrichments} of ${originalData.length} contacts.${costMessage}${combinationMessage}`,
       });
     } catch (error) {
       toast({

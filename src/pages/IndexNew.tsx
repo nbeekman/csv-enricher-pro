@@ -18,6 +18,7 @@ interface DataRecord {
   phone?: string;
   address?: string;
   enriched?: boolean;
+  rawJsonResponse?: any; // Store the complete raw JSON response
 }
 
 const Index = () => {
