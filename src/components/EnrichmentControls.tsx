@@ -123,7 +123,13 @@ export const EnrichmentControls = ({
         <div className="space-y-2">
           <Label htmlFor="api-key">Endato/Enformion API Key</Label>
           <p className="text-sm text-muted-foreground">
-            Format: accessProfile:password (e.g., "myProfile:myPassword")
+            Format: profileName:password (e.g., "myProfile:myPassword")
+          </p>
+          <p className="text-xs text-muted-foreground">
+            If you're getting authentication errors, please verify your credentials are correct and have the proper permissions for the Contact Enrich API.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Note: The API requires both first and last names to be present for each contact. Contacts missing either name will be skipped.
           </p>
           <div className="flex gap-2">
             <Input
@@ -131,7 +137,7 @@ export const EnrichmentControls = ({
               type={showApiKey ? "text" : "password"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="accessProfile:password"
+              placeholder="profileName:password"
               disabled={isEnriching}
               className="flex-1"
             />

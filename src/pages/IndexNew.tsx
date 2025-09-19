@@ -38,51 +38,53 @@ const Index = () => {
     
     try {
       // Extract API credentials from the API key
-      // Expecting format: "profileName:password" (e.g., "myProfile:myPassword")
-      const [profileName, password] = apiKey.includes(':') ? apiKey.split(':') : [apiKey, ''];
+      // Expecting format: "accessProfile:password" or just the access profile name
+      const [accessProfile, password] = apiKey.includes(':') ? apiKey.split(':') : [apiKey, ''];
       
       if (!password) {
         console.error('API key format error: missing password');
-        throw new Error('API key must be in format "profileName:password" (e.g., "myProfile:myPassword")');
+        throw new Error('API key must be in format "accessProfile:password"');
       }
-      
-      console.log('Parsed credentials:');
-      console.log('- Profile Name:', profileName);
-      console.log('- Password length:', password.length);
 
       // Create Enformion service instance
       const enformionService = new EnformionService({
-        accessProfile: profileName,
+        accessProfile,
         password
       });
 
-      console.log('Using EnformionService with working authentication method');
+      console.log('Using EnformionService with official authentication method');
       
-      // Use the working authentication method
-      const result = await enformionService.enrichContact({
-        firstName: contact.firstName,
-        middleName: contact.middleName,
-        lastName: contact.lastName,
-        city: contact.city,
-        state: contact.state
-      });
+      // Try via proxy first (for development)
+      let result;
+      try {
+        result = await enformionService.enrichContactViaProxy({
+          firstName: contact.firstName,
+          middleName: contact.middleName,
+          lastName: contact.lastName,
+          city: contact.city,
+          state: contact.state
+        });
+      } catch (proxyError) {
+        console.log('Proxy method failed, trying direct API call:', proxyError);
+        // Fallback to direct API call
+        result = await enformionService.enrichContact({
+          firstName: contact.firstName,
+          middleName: contact.middleName,
+          lastName: contact.lastName,
+          city: contact.city,
+          state: contact.state
+        });
+      }
       
       // Extract enriched data from API response
       const enriched: DataRecord = {
         ...contact,
-        email: result.person?.emails?.[0]?.address || '',
-        phone: result.person?.phones?.[0]?.number || '',
-        address: result.person?.addresses?.[0] ? 
-          `${result.person.addresses[0].street}${result.person.addresses[0].unit ? ' ' + result.person.addresses[0].unit : ''}, ${result.person.addresses[0].city}, ${result.person.addresses[0].state} ${result.person.addresses[0].zip}` : '',
+        email: result.Emails?.[0] || '',
+        phone: result.Phones?.[0] || '',
+        address: result.Addresses?.[0] || '',
         enriched: true,
       };
       
-      console.log('API Response Summary:');
-      console.log('- Identity Score:', result.identityScore);
-      console.log('- Total Execution Time:', result.totalRequestExecutionTimeMs + 'ms');
-      console.log('- Found Addresses:', result.person?.addresses?.length || 0);
-      console.log('- Found Phones:', result.person?.phones?.length || 0);
-      console.log('- Found Emails:', result.person?.emails?.length || 0);
       console.log('Enriched contact:', enriched);
       return enriched;
     } catch (error) {
