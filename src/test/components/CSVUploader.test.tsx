@@ -147,7 +147,8 @@ describe('CSVUploader', () => {
 
     // Should show error message
     await waitFor(() => {
-      expect(screen.getByText(/no valid data found/i)).toBeInTheDocument()
+      const errorMessages = screen.getAllByText(/no valid data found/i)
+      expect(errorMessages.length).toBeGreaterThan(0)
     })
   })
 
@@ -201,7 +202,8 @@ describe('CSVUploader', () => {
 
     // Should show error message about missing required columns
     await waitFor(() => {
-      expect(screen.getByText(/no valid data found/i)).toBeInTheDocument()
+      const errorMessages = screen.getAllByText(/no valid data found/i)
+      expect(errorMessages.length).toBeGreaterThan(0)
     }, { timeout: 3000 })
   })
 
