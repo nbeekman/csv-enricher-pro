@@ -42,58 +42,67 @@ const Index = () => {
    * Create a toast message for API errors with appropriate styling and icons
    */
   const showApiErrorToast = (error: Error, contactName?: string) => {
+    console.log('🔔 showApiErrorToast called with:', { error, contactName });
     const apiError = (error as Error & { apiError?: ApiError }).apiError;
+    console.log('🔔 Parsed apiError:', apiError);
 
     if (apiError) {
       const contactInfo = contactName ? ` for ${contactName}` : '';
+      console.log('🔔 Showing structured API error toast for type:', apiError.type);
 
       switch (apiError.type) {
         case 'rate_limit':
+          console.log('🔔 Showing rate limit toast');
           toast({
             title: "Rate Limit Exceeded",
-            description: `API rate limit exceeded${contactInfo}. Please wait ${apiError.retryAfter || 60} seconds before continuing.`,
+            description: `API rate limit exceeded${contactInfo}. Please wait ${apiError.retryAfter || 60} seconds before continuing.${apiError.technicalMessage ? `\n\nDetails: ${apiError.technicalMessage}` : ''}`,
             variant: "destructive",
             duration: 10000, // Show longer for rate limit errors
           });
           break;
 
         case 'authentication':
+          console.log('🔔 Showing authentication toast');
           toast({
             title: "Authentication Failed",
-            description: `Invalid API credentials${contactInfo}. Please check your API key and try again.`,
+            description: `Invalid API credentials${contactInfo}. Please check your API key and try again.${apiError.technicalMessage ? `\n\nDetails: ${apiError.technicalMessage}` : ''}`,
             variant: "destructive",
             duration: 8000,
           });
           break;
 
         case 'validation':
+          console.log('🔔 Showing validation toast');
           toast({
             title: "Validation Error",
-            description: `Invalid data${contactInfo}: ${apiError.message}`,
+            description: `Invalid data${contactInfo}: ${apiError.message}${apiError.technicalMessage ? `\n\nDetails: ${apiError.technicalMessage}` : ''}`,
             variant: "destructive",
             duration: 6000,
           });
           break;
 
         case 'network':
+          console.log('🔔 Showing network toast');
           toast({
             title: "Network Error",
-            description: `Server error${contactInfo}. Please try again later.`,
+            description: `Server error${contactInfo}. Please try again later.${apiError.technicalMessage ? `\n\nDetails: ${apiError.technicalMessage}` : ''}`,
             variant: "destructive",
             duration: 5000,
           });
           break;
 
         default:
+          console.log('🔔 Showing default API error toast');
           toast({
             title: "API Error",
-            description: `${apiError.message}${contactInfo}`,
+            description: `${apiError.message}${contactInfo}${apiError.technicalMessage ? `\n\nDetails: ${apiError.technicalMessage}` : ''}`,
             variant: "destructive",
             duration: 5000,
           });
       }
     } else {
       // Fallback for non-API errors
+      console.log('🔔 Showing fallback error toast');
       const contactInfo = contactName ? ` for ${contactName}` : '';
       toast({
         title: "Enrichment Error",
@@ -196,6 +205,15 @@ const Index = () => {
       return enriched;
     } catch (error) {
       console.error('Error enriching contact:', error);
+      console.log('🔔 Error caught in enrichContact function');
+
+      // Show error toast for this specific contact
+      const contactName = `${contact.firstName} ${contact.lastName}`.trim();
+      console.log('🔔 About to call showApiErrorToast from enrichContact for:', contactName);
+      console.log('🔔 Error object being passed:', error);
+      showApiErrorToast(error as Error, contactName);
+      console.log('🔔 showApiErrorToast call completed');
+
       return { ...contact, enriched: false };
     }
   };
@@ -244,6 +262,7 @@ const Index = () => {
           }
         } catch (error) {
           console.error('Error enriching contact:', error);
+          console.log('🔔 Error caught in enrichment loop, contact index:', i);
           // Continue with next contact even if one fails
           enriched.push({ ...originalData[i], enriched: false });
           setEnrichedData([...enriched]);
@@ -251,19 +270,32 @@ const Index = () => {
           // Show error toast for the first few failures to alert user
           if (i < 3) {
             const contactName = `${originalData[i].firstName} ${originalData[i].lastName}`.trim();
+            console.log('🔔 About to call showApiErrorToast for contact:', contactName);
             showApiErrorToast(error as Error, contactName);
+          } else {
+            console.log('🔔 Skipping toast for contact index', i, '(only showing first 3 errors)');
           }
         }
       }
 
       const successfulEnrichments = enriched.filter(c => c.enriched).length;
+      const failedEnrichments = enriched.filter(c => !c.enriched).length;
       const costMessage = totalCost > 0 ? ` Total cost: $${totalCost.toFixed(2)}.` : '';
       const combinationMessage = combinationUsed > 0 ? ` ${combinationUsed} contacts used combination search.` : '';
 
-      toast({
-        title: "Enrichment completed",
-        description: `Successfully enriched ${successfulEnrichments} of ${originalData.length} contacts.${costMessage}${combinationMessage}`,
-      });
+      // Show completion toast immediately since we can now show multiple toasts
+      if (failedEnrichments > 0) {
+        toast({
+          title: "Enrichment completed with errors",
+          description: `Successfully enriched ${successfulEnrichments} of ${originalData.length} contacts. ${failedEnrichments} failed.${costMessage}${combinationMessage}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Enrichment completed",
+          description: `Successfully enriched ${successfulEnrichments} of ${originalData.length} contacts.${costMessage}${combinationMessage}`,
+        });
+      }
     } catch (error) {
       toast({
         title: "Enrichment failed",

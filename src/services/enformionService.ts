@@ -197,16 +197,20 @@ export class EnformionService {
    */
   private parseApiError(response: Response, errorText: string): ApiError {
     const statusCode = response.status;
+    console.log('🔔 parseApiError called with status:', statusCode, 'and text:', errorText);
 
     // Try to parse JSON error response
     try {
       const errorData = JSON.parse(errorText);
+      console.log('🔔 Parsed error data:', errorData);
 
       if (errorData.error) {
         const error = errorData.error;
+        console.log('🔔 Found error object:', error);
 
         // Handle rate limit errors (429)
         if (statusCode === 429 || error.code === 'Rate Limit Exceeded') {
+          console.log('🔔 Detected rate limit error');
           return {
             type: 'rate_limit',
             code: error.code || 'Rate Limit Exceeded',
@@ -460,16 +464,23 @@ export class EnformionService {
 
       // Parse the error using our structured error handler
       const apiError = this.parseApiError(response, errorText);
+      console.log('🔔 Parsed API error in enrichContact:', apiError);
 
       // Create a custom error that includes the structured API error
       const error = new Error(apiError.message) as Error & { apiError: ApiError };
       error.apiError = apiError;
+      console.log('🔔 Created structured error:', error);
 
       throw error;
 
     } catch (error) {
       console.error('EnformionService: Error enriching contact:', error);
-      throw error;
+      // Preserve structured API error if it exists
+      if ((error as Error & { apiError?: ApiError }).apiError) {
+        throw error;
+      }
+      // For network errors or other issues, create a generic error
+      throw new Error(`Network or connection error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
