@@ -1,10 +1,10 @@
-import { useState } from 'react';
 import { CSVUploader } from '@/components/CSVUploader';
 import { DataTable } from '@/components/DataTable';
 import { EnrichmentControls } from '@/components/EnrichmentControls';
 import { useToast } from '@/hooks/use-toast';
-import { EnformionService, SearchType, SearchResult } from '@/services/enformionService';
-import { extractContactData } from '@/utils/dataExtractor';
+import { EnformionService, SearchResult, SearchType } from '@/services/enformionService';
+import { extractContactData, mergeContactData } from '@/utils/dataExtractor';
+import { useState } from 'react';
 
 interface DataRecord {
   firstName: string;
@@ -46,17 +46,17 @@ const Index = () => {
 
   const enrichContact = async (contact: DataRecord, apiKey: string, searchType: SearchType): Promise<DataRecord> => {
     console.log(`Starting ${searchType} enrichment for contact:`, contact.firstName, contact.lastName);
-    
+
     try {
       // Extract API credentials from the API key
       // Expecting format: "profileName:password" (e.g., "myProfile:myPassword")
       const [profileName, password] = apiKey.includes(':') ? apiKey.split(':') : [apiKey, ''];
-      
+
       if (!password) {
         console.error('API key format error: missing password');
         throw new Error('API key must be in format "profileName:password" (e.g., "myProfile:myPassword")');
       }
-      
+
       console.log('Parsed credentials:');
       console.log('- Profile Name:', profileName);
       console.log('- Password length:', password.length);
@@ -68,7 +68,7 @@ const Index = () => {
       });
 
       console.log(`Using EnformionService with ${searchType} search method`);
-      
+
       // Use the new search method that handles all search types
       const searchResult: SearchResult = await enformionService.searchContact({
         firstName: contact.firstName,
@@ -77,10 +77,32 @@ const Index = () => {
         city: contact.city,
         state: contact.state
       }, searchType);
-      
+
       // Extract enriched data from API response using unified extraction
-      const extractedData = extractContactData(searchResult.data, searchResult.searchType);
-      
+      let extractedData = extractContactData(searchResult.data, searchResult.searchType);
+
+      // Debug logging for email data
+      console.log(`Email extraction for ${contact.firstName} ${contact.lastName}:`, {
+        searchType: searchResult.searchType,
+        hasEmailData: !!extractedData.email,
+        emailValue: extractedData.email,
+        rawEmails: searchResult.data?.person?.emails,
+        allApiResponses: searchResult.allApiResponses.length
+      });
+
+      // If using combination search and we have multiple API responses, merge the data
+      if (searchResult.searchType === 'combination' && searchResult.allApiResponses.length > 1) {
+        const contactData = extractContactData(searchResult.allApiResponses[0].response, 'contact');
+        const personData = extractContactData(searchResult.allApiResponses[1].response, 'person');
+        extractedData = mergeContactData(contactData, personData);
+
+        console.log(`Merged data for ${contact.firstName} ${contact.lastName}:`, {
+          contactEmail: contactData.email,
+          personEmail: personData.email,
+          finalEmail: extractedData.email
+        });
+      }
+
       const enriched: DataRecord = {
         ...contact,
         email: extractedData.email,
@@ -93,7 +115,7 @@ const Index = () => {
         usedCombination: searchResult.usedCombination,
         allApiResponses: searchResult.allApiResponses, // Store all API responses made during the search
       };
-      
+
       console.log('API Response Summary:');
       console.log('- Search Type:', searchResult.searchType);
       console.log('- Cost:', searchResult.cost);
@@ -127,15 +149,15 @@ const Index = () => {
       const enriched: DataRecord[] = [];
       let totalCost = 0;
       let combinationUsed = 0;
-      
+
       for (let i = 0; i < originalData.length; i++) {
         console.log(`Processing contact ${i + 1} of ${originalData.length}`);
-        
+
         try {
           const enrichedContact = await enrichContact(originalData[i], apiKey, searchType);
           enriched.push(enrichedContact);
           setEnrichedData([...enriched]);
-          
+
           // Track costs and combination usage
           if (enrichedContact.cost) {
             totalCost += enrichedContact.cost;
@@ -143,10 +165,10 @@ const Index = () => {
           if (enrichedContact.usedCombination) {
             combinationUsed++;
           }
-          
+
           const newProgress = ((i + 1) / originalData.length) * 100;
           setProgress(newProgress);
-          
+
           // Show progress toast every 25%
           if (newProgress % 25 === 0) {
             toast({
@@ -159,7 +181,7 @@ const Index = () => {
           // Continue with next contact even if one fails
           enriched.push({ ...originalData[i], enriched: false });
           setEnrichedData([...enriched]);
-          
+
           // Show error toast for the first few failures to alert user
           if (i < 3) {
             toast({

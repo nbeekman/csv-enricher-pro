@@ -91,15 +91,25 @@ interface ExtractedContactData {
  * Extracts contact data from Contact Enrichment API response
  */
 function extractFromContactEnrichment(person: ContactEnrichmentPerson): ExtractedContactData {
-  const email = person.emails?.[0]?.address || '';
-  const phone = person.phones?.[0]?.number || '';
-  
+  // Get the best email (first connected email, or first available)
+  const bestEmail = person.emails
+    ?.filter(email => email.isConnected)
+    ?.[0] || person.emails?.[0];
+  const email = bestEmail?.address || '';
+
+  // Get the best phone (first connected phone, or first available)
+  const bestPhone = person.phones
+    ?.filter(phone => phone.isConnected)
+    ?.[0] || person.phones?.[0];
+  const phone = bestPhone?.number || '';
+
+  // Get the most recent address
   let address = '';
   if (person.addresses?.[0]) {
     const addr = person.addresses[0];
     address = `${addr.street}${addr.unit ? ' ' + addr.unit : ''}, ${addr.city}, ${addr.state} ${addr.zip}`;
   }
-  
+
   return { email, phone, address };
 }
 
@@ -117,9 +127,9 @@ function extractFromPersonSearch(person: PersonSearchPerson): ExtractedContactDa
       // Then by ordinal (lower is better)
       return a.emailOrdinal - b.emailOrdinal;
     })?.[0];
-  
+
   const email = bestEmail?.emailAddress || '';
-  
+
   // Get the best phone number (first connected, public, wireless)
   const bestPhone = person.phoneNumbers
     ?.filter(phone => phone.isConnected && phone.isPublic)
@@ -133,17 +143,28 @@ function extractFromPersonSearch(person: PersonSearchPerson): ExtractedContactDa
       // Then by phone order
       return a.phoneOrder - b.phoneOrder;
     })?.[0];
-  
+
   const phone = bestPhone?.phoneNumber || '';
-  
+
   // Get the best address (first deliverable, public, primary)
   const bestAddress = person.addresses
     ?.filter(addr => addr.isDeliverable && addr.isPublic)
     ?.sort((a, b) => a.addressOrder - b.addressOrder)?.[0];
-  
+
   const address = bestAddress?.fullAddress || '';
-  
+
   return { email, phone, address };
+}
+
+/**
+ * Merges contact data from multiple API responses, prioritizing the best available data
+ */
+export function mergeContactData(contactData: ExtractedContactData, personData: ExtractedContactData): ExtractedContactData {
+  return {
+    email: personData.email || contactData.email, // Prioritize Person Search email (usually better quality)
+    phone: personData.phone || contactData.phone, // Prioritize Person Search phone (usually better quality)
+    address: contactData.address || personData.address // Use Contact Enrichment address first (usually more complete)
+  };
 }
 
 /**
@@ -152,7 +173,7 @@ function extractFromPersonSearch(person: PersonSearchPerson): ExtractedContactDa
 export function extractContactData(apiResponse: any, searchType: 'contact' | 'person' | 'combination'): ExtractedContactData {
   // Handle different response structures
   let person = null;
-  
+
   if (apiResponse?.person) {
     // Contact Enrichment response structure
     person = apiResponse.person;
@@ -160,11 +181,11 @@ export function extractContactData(apiResponse: any, searchType: 'contact' | 'pe
     // Person Search response structure with persons array
     person = apiResponse.persons[0]; // Use first person
   }
-  
+
   if (!person) {
     return { email: '', phone: '', address: '' };
   }
-  
+
   // Determine which extraction method to use based on the response structure
   if (person.phoneNumbers && person.addresses?.[0]?.fullAddress) {
     // Person Search API response structure
@@ -175,16 +196,16 @@ export function extractContactData(apiResponse: any, searchType: 'contact' | 'pe
   } else {
     // Fallback: try to extract what we can
     console.warn('Unknown API response structure, attempting fallback extraction');
-    
-    const email = person.emails?.[0]?.address || 
-                  person.emailAddresses?.[0]?.emailAddress || 
+
+    const email = person.emails?.[0]?.address ||
+                  person.emailAddresses?.[0]?.emailAddress ||
                   '';
-    
-    const phone = person.phones?.[0]?.number || 
-                  person.phoneNumbers?.[0]?.phoneNumber || 
+
+    const phone = person.phones?.[0]?.number ||
+                  person.phoneNumbers?.[0]?.phoneNumber ||
                   person.phoneNumbers?.[0]?.number ||
                   '';
-    
+
     let address = '';
     if (person.addresses?.[0]) {
       const addr = person.addresses[0];
@@ -194,7 +215,7 @@ export function extractContactData(apiResponse: any, searchType: 'contact' | 'pe
         address = `${addr.street}${addr.unit ? ' ' + addr.unit : ''}, ${addr.city}, ${addr.state} ${addr.zip}`;
       }
     }
-    
+
     return { email, phone, address };
   }
 }
@@ -233,7 +254,7 @@ export function testDataExtraction() {
       }]
     }
   };
-  
+
   // Sample Person Search response
   const personSearchResponse = {
     person: {
@@ -279,14 +300,14 @@ export function testDataExtraction() {
       }]
     }
   };
-  
+
   console.log("=== Data Extraction Test ===");
-  
+
   const contactData = extractContactData(contactEnrichmentResponse, 'contact');
   console.log("Contact Enrichment extraction:", contactData);
-  
+
   const personData = extractContactData(personSearchResponse, 'person');
   console.log("Person Search extraction:", personData);
-  
+
   return { contactData, personData };
 }
