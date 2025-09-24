@@ -2,7 +2,7 @@ import { CSVUploader } from '@/components/CSVUploader';
 import { DataTable } from '@/components/DataTable';
 import { EnrichmentControls } from '@/components/EnrichmentControls';
 import { useToast } from '@/hooks/use-toast';
-import { EnformionService, SearchResult, SearchType } from '@/services/enformionService';
+import { ApiError, EnformionService, SearchResult, SearchType } from '@/services/enformionService';
 import { extractContactData, mergeContactData } from '@/utils/dataExtractor';
 import { useState } from 'react';
 
@@ -37,6 +37,72 @@ const Index = () => {
   const [isEnriching, setIsEnriching] = useState(false);
   const [progress, setProgress] = useState(0);
   const { toast } = useToast();
+
+  /**
+   * Create a toast message for API errors with appropriate styling and icons
+   */
+  const showApiErrorToast = (error: Error, contactName?: string) => {
+    const apiError = (error as Error & { apiError?: ApiError }).apiError;
+
+    if (apiError) {
+      const contactInfo = contactName ? ` for ${contactName}` : '';
+
+      switch (apiError.type) {
+        case 'rate_limit':
+          toast({
+            title: "Rate Limit Exceeded",
+            description: `API rate limit exceeded${contactInfo}. Please wait ${apiError.retryAfter || 60} seconds before continuing.`,
+            variant: "destructive",
+            duration: 10000, // Show longer for rate limit errors
+          });
+          break;
+
+        case 'authentication':
+          toast({
+            title: "Authentication Failed",
+            description: `Invalid API credentials${contactInfo}. Please check your API key and try again.`,
+            variant: "destructive",
+            duration: 8000,
+          });
+          break;
+
+        case 'validation':
+          toast({
+            title: "Validation Error",
+            description: `Invalid data${contactInfo}: ${apiError.message}`,
+            variant: "destructive",
+            duration: 6000,
+          });
+          break;
+
+        case 'network':
+          toast({
+            title: "Network Error",
+            description: `Server error${contactInfo}. Please try again later.`,
+            variant: "destructive",
+            duration: 5000,
+          });
+          break;
+
+        default:
+          toast({
+            title: "API Error",
+            description: `${apiError.message}${contactInfo}`,
+            variant: "destructive",
+            duration: 5000,
+          });
+      }
+    } else {
+      // Fallback for non-API errors
+      const contactInfo = contactName ? ` for ${contactName}` : '';
+      toast({
+        title: "Enrichment Error",
+        description: `${error.message}${contactInfo}`,
+        variant: "destructive",
+        duration: 5000,
+      });
+    }
+  };
 
   const handleDataParsed = (data: DataRecord[]) => {
     setOriginalData(data);
@@ -123,7 +189,7 @@ const Index = () => {
       console.log('- Used Combination:', searchResult.usedCombination);
       console.log('- Total Execution Time:', searchResult.data.totalRequestExecutionTimeMs + 'ms');
       console.log('- Found Addresses:', searchResult.data.person?.addresses?.length || 0);
-      console.log('- Found Phones:', searchResult.data.person?.phones?.length || searchResult.data.person?.phoneNumbers?.length || 0);
+      console.log('- Found Phones:', searchResult.data.person?.phones?.length || 0);
       console.log('- Found Emails:', searchResult.data.person?.emails?.length || 0);
       console.log('- Extracted Data:', extractedData);
       console.log('Enriched contact:', enriched);
@@ -184,11 +250,8 @@ const Index = () => {
 
           // Show error toast for the first few failures to alert user
           if (i < 3) {
-            toast({
-              title: "Enrichment error",
-              description: `Failed to enrich contact ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-              variant: "destructive",
-            });
+            const contactName = `${originalData[i].firstName} ${originalData[i].lastName}`.trim();
+            showApiErrorToast(error as Error, contactName);
           }
         }
       }

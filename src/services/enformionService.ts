@@ -68,6 +68,15 @@ interface ContactEnrichmentResponse {
   totalRequestExecutionTimeMs: number;
 }
 
+export interface ApiError {
+  type: 'rate_limit' | 'authentication' | 'validation' | 'network' | 'unknown';
+  code: string;
+  message: string;
+  technicalMessage?: string;
+  statusCode?: number;
+  retryAfter?: number; // For rate limit errors
+}
+
 interface PersonSearchRequest {
   FirstName: string | null;
   MiddleName: string | null;
@@ -183,6 +192,104 @@ export class EnformionService {
     this.validateCredentials();
   }
 
+  /**
+   * Parse API error response and create a structured ApiError
+   */
+  private parseApiError(response: Response, errorText: string): ApiError {
+    const statusCode = response.status;
+
+    // Try to parse JSON error response
+    try {
+      const errorData = JSON.parse(errorText);
+
+      if (errorData.error) {
+        const error = errorData.error;
+
+        // Handle rate limit errors (429)
+        if (statusCode === 429 || error.code === 'Rate Limit Exceeded') {
+          return {
+            type: 'rate_limit',
+            code: error.code || 'Rate Limit Exceeded',
+            message: 'API rate limit exceeded. Please wait before making more requests.',
+            technicalMessage: error.technicalErrorMessage,
+            statusCode,
+            retryAfter: 60 // Default to 60 seconds if not specified
+          };
+        }
+
+        // Handle validation errors
+        if (error.code === 'Invalid Input') {
+          return {
+            type: 'validation',
+            code: error.code,
+            message: `Validation failed: ${error.inputErrors?.join(', ') || error.message}`,
+            technicalMessage: error.technicalErrorMessage,
+            statusCode
+          };
+        }
+
+        // Handle authentication errors
+        if (statusCode === 401 || error.code === 'Unauthorized') {
+          return {
+            type: 'authentication',
+            code: error.code || 'Unauthorized',
+            message: 'Authentication failed. Please check your API credentials.',
+            technicalMessage: error.technicalErrorMessage,
+            statusCode
+          };
+        }
+
+        // Generic API error
+        return {
+          type: 'unknown',
+          code: error.code || 'API Error',
+          message: error.message || 'An API error occurred',
+          technicalMessage: error.technicalErrorMessage,
+          statusCode
+        };
+      }
+    } catch (parseError) {
+      // If we can't parse the error, create a generic error
+    }
+
+    // Handle HTTP status codes
+    if (statusCode === 429) {
+      return {
+        type: 'rate_limit',
+        code: 'Rate Limit Exceeded',
+        message: 'API rate limit exceeded. Please wait before making more requests.',
+        statusCode,
+        retryAfter: 60
+      };
+    }
+
+    if (statusCode === 401) {
+      return {
+        type: 'authentication',
+        code: 'Unauthorized',
+        message: 'Authentication failed. Please check your API credentials.',
+        statusCode
+      };
+    }
+
+    if (statusCode >= 500) {
+      return {
+        type: 'network',
+        code: 'Server Error',
+        message: 'Server error occurred. Please try again later.',
+        statusCode
+      };
+    }
+
+    // Default error
+    return {
+      type: 'unknown',
+      code: 'Unknown Error',
+      message: `Request failed with status ${statusCode}`,
+      statusCode
+    };
+  }
+
   private validateCredentials() {
     console.log('EnformionService: Validating credentials...');
     console.log('- Access Profile:', this.credentials.accessProfile);
@@ -274,33 +381,14 @@ export class EnformionService {
       console.log('Error response:', errorText);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
-      // Check if this is a business logic error (not authentication)
-      try {
-        const errorData = JSON.parse(errorText);
-        if (errorData.error && errorData.error.code === 'Invalid Input') {
-          console.log('🎉 Authentication successful! This is a business logic validation error.');
-          console.log('Input errors:', errorData.error.inputErrors);
+      // Parse the error using our structured error handler
+      const apiError = this.parseApiError(response, errorText);
 
-          // Check for specific validation errors we can handle
-          const inputErrors = errorData.error.inputErrors || [];
-          if (inputErrors.some((error: string) => error.includes('Last Name is required if First Name is used'))) {
-            console.log('⚠️ Validation error: Missing last name when first name is provided');
-            throw new Error('Validation failed: Last name is required when first name is provided. Please ensure your CSV data includes both first and last names.');
-          }
+      // Create a custom error that includes the structured API error
+      const error = new Error(apiError.message) as Error & { apiError: ApiError };
+      error.apiError = apiError;
 
-          throw new Error(`Business validation failed: ${inputErrors.join(', ')}`);
-        }
-      } catch (parseError) {
-        // If we can't parse the error, continue with normal error handling
-      }
-
-      let errorMessage = `Person Search API request failed: ${response.status} ${response.statusText}`;
-      if (response.status === 401) {
-        errorMessage = 'Authentication failed. Please check your API credentials.';
-      } else if (response.status === 400 && errorText.includes('Token header is missing')) {
-        errorMessage = 'API requires a specific token header format. Please verify your credentials and contact Enformion support for the correct authentication method.';
-      }
-      throw new Error(errorMessage);
+      throw error;
 
     } catch (error) {
       console.error('EnformionService: Error searching person:', error);
@@ -370,33 +458,14 @@ export class EnformionService {
       console.log('API request failed with status:', response.status);
       console.log('Error response:', errorText);
 
-      // Check if this is a business logic error (not authentication)
-      try {
-        const errorData = JSON.parse(errorText);
-        if (errorData.error && errorData.error.code === 'Invalid Input') {
-          console.log('🎉 Authentication successful! This is a business logic validation error.');
-          console.log('Input errors:', errorData.error.inputErrors);
+      // Parse the error using our structured error handler
+      const apiError = this.parseApiError(response, errorText);
 
-          // Check for specific validation errors we can handle
-          const inputErrors = errorData.error.inputErrors || [];
-          if (inputErrors.some((error: string) => error.includes('Last Name is required if First Name is used'))) {
-            console.log('⚠️ Validation error: Missing last name when first name is provided');
-            throw new Error('Validation failed: Last name is required when first name is provided. Please ensure your CSV data includes both first and last names.');
-          }
+      // Create a custom error that includes the structured API error
+      const error = new Error(apiError.message) as Error & { apiError: ApiError };
+      error.apiError = apiError;
 
-          throw new Error(`Business validation failed: ${inputErrors.join(', ')}`);
-        }
-      } catch (parseError) {
-        // If we can't parse the error, continue with normal error handling
-      }
-
-      let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
-      if (response.status === 401) {
-        errorMessage = 'Authentication failed. Please check your API credentials.';
-      } else if (response.status === 400 && errorText.includes('Token header is missing')) {
-        errorMessage = 'API requires a specific token header format. Please verify your credentials and contact Enformion support for the correct authentication method.';
-      }
-      throw new Error(errorMessage);
+      throw error;
 
     } catch (error) {
       console.error('EnformionService: Error enriching contact:', error);
@@ -449,7 +518,12 @@ export class EnformionService {
     if (searchType === 'combination') {
       // First try Contact Enrichment
       const contactResult = await this.enrichContact(contactData);
-      const allApiResponses = [{
+      const allApiResponses: Array<{
+        response: ContactEnrichmentResponse | PersonSearchResponse;
+        searchType: 'contact' | 'person';
+        timestamp: string;
+        cost: number;
+      }> = [{
         response: contactResult,
         searchType: 'contact' as const,
         timestamp: new Date().toISOString(),
